@@ -1,42 +1,391 @@
 #cloud-config
 autoinstall:
-    version: 1
-    identity:
-        realname: 'Vinicius Mascarenhas'
-        hostname: meu-ubuntu
-        username: tmvinicius
-        password: '$y$j9T$uhkxlm8nUQaNu.6rl4k2d.$DIldpYy96OHg8lFjfXfc671BZcGWkPOmaDONGAhGSg3'
-    locale: pt_BR.utf8
-    keyboard:
-        layout: br
-    timezone: "America/Sao_Paulo"   
-    packages:
-        - gimp
-        - git
-        - wgets
-        - docker.io
-        - openjdk-17-jdk
-        - unzip
-    snaps:
-        - name: intellij-idea-community
-          channel: stable
-          classic: true
-        - name: brave
-          channel: stable
-          classic: true
-        - name: dbeaver-ce
-          channel: stable
-          classic: true
-        - name: maven
-          channel: 3.9.9/stable
-          classic: true
-        - name: postman
-          channel: stable
-          classic: true
-    codecs:
-        install: true
-    drivers:
-        install: true
-    updates: all
-    shutdown: reboot
+  version: 1
 
+  identity:
+    realname: "Vinicius Mascarenhas"
+    hostname: meu-ubuntu
+    username: tmvinicius
+
+    # Substitua pelo mesmo hash usado no arquivo atual.
+    password: "$y$j9T$uhkxlm8nUQaNu.6rl4k2d.$DIldpYy96OHg8lFjfXfc671BZcGWkPOmaDONGAhGSg3"
+
+  locale: pt_BR.UTF-8
+
+  keyboard:
+    layout: br
+
+  timezone: "America/Sao_Paulo"
+
+  packages:
+    # -------------------------------------------------------
+    # Base do sistema e desenvolvimento
+    # -------------------------------------------------------
+    - ubuntu-desktop
+    - build-essential
+    - ca-certificates
+    - curl
+    - wget
+    - git
+    - gnupg
+    - jq
+    - unzip
+    - zip
+    - vim
+    - pkg-config
+    - sudo
+    - fontconfig
+
+    # -------------------------------------------------------
+    # Python
+    # -------------------------------------------------------
+    - python3-full
+    - python3-dev
+    - python3-pip
+    - python3-venv
+    - pipx
+
+    # -------------------------------------------------------
+    # Ambiente gráfico e produtividade
+    # -------------------------------------------------------
+    - libreoffice
+    - fonts-jetbrains-mono
+    - gnome-tweaks
+    - gparted
+    - flatpak
+    - gimp
+
+    # -------------------------------------------------------
+    # Ferramentas já presentes no ambiente atual
+    # -------------------------------------------------------
+    - chrony
+    - ffuf
+    - genisoimage
+    - lnav
+    - netcat-openbsd
+    - tshark
+    - whois
+    - xorriso
+
+  snaps:
+    # IntelliJ atualmente é distribuído como produto unificado.
+    - name: intellij-idea
+      channel: stable
+      classic: true
+
+    - name: bruno
+      channel: stable
+      classic: false
+
+    - name: go
+      channel: stable
+      classic: true
+
+    - name: discord
+      channel: stable
+      classic: false
+
+    - name: gnome-boxes
+      channel: stable
+      classic: false
+
+  codecs:
+    install: true
+
+  drivers:
+    install: true
+
+  updates: all
+
+  # ---------------------------------------------------------
+  # Configuração executada no primeiro boot
+  # ---------------------------------------------------------
+  user-data:
+    write_files:
+      - path: /usr/local/sbin/setup-development-environment
+        owner: root:root
+        permissions: "0755"
+        content: |
+          #!/usr/bin/env bash
+
+          set -Eeuo pipefail
+
+          exec > >(
+            tee -a /var/log/development-environment-setup.log
+          ) 2>&1
+
+          DEV_USER="tmvinicius"
+          DEV_HOME="/home/${DEV_USER}"
+
+          export DEBIAN_FRONTEND=noninteractive
+
+          echo "Iniciando configuração do ambiente de desenvolvimento..."
+
+          apt-get update
+
+          apt-get install -y \
+            apt-transport-https \
+            ca-certificates \
+            curl \
+            git \
+            gnupg \
+            jq \
+            tar
+
+          install -m 0755 -d /etc/apt/keyrings
+          install -m 0755 -d /usr/share/keyrings
+
+          # -------------------------------------------------
+          # Docker CE
+          # -------------------------------------------------
+
+          curl -fsSL \
+            https://download.docker.com/linux/ubuntu/gpg \
+            -o /etc/apt/keyrings/docker.asc
+
+          chmod a+r /etc/apt/keyrings/docker.asc
+
+          . /etc/os-release
+
+          cat > /etc/apt/sources.list.d/docker.sources <<EOF
+          Types: deb
+          URIs: https://download.docker.com/linux/ubuntu
+          Suites: ${UBUNTU_CODENAME:-$VERSION_CODENAME}
+          Components: stable
+          Architectures: $(dpkg --print-architecture)
+          Signed-By: /etc/apt/keyrings/docker.asc
+          EOF
+
+          # -------------------------------------------------
+          # Brave Browser
+          # -------------------------------------------------
+
+          curl -fsSLo \
+            /usr/share/keyrings/brave-browser-archive-keyring.gpg \
+            https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+
+          curl -fsSLo \
+            /etc/apt/sources.list.d/brave-browser-release.sources \
+            https://brave-browser-apt-release.s3.brave.com/brave-browser.sources
+
+          # -------------------------------------------------
+          # Visual Studio Code
+          # -------------------------------------------------
+
+          curl -fsSL \
+            https://packages.microsoft.com/keys/microsoft.asc |
+            gpg \
+              --dearmor \
+              --batch \
+              --yes \
+              -o /etc/apt/keyrings/packages.microsoft.gpg
+
+          cat > /etc/apt/sources.list.d/vscode.list <<EOF
+          deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main
+          EOF
+
+          apt-get update
+
+          apt-get install -y \
+            brave-browser \
+            code \
+            containerd.io \
+            docker-buildx-plugin \
+            docker-ce \
+            docker-ce-cli \
+            docker-compose-plugin
+
+          systemctl enable docker
+
+          usermod -aG docker "${DEV_USER}"
+
+          # -------------------------------------------------
+          # Google Chrome Stable
+          # -------------------------------------------------
+
+          if [ "$(dpkg --print-architecture)" = "amd64" ]; then
+            curl -fL \
+              https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+              -o /run/google-chrome-stable.deb
+
+            apt-get install -y /run/google-chrome-stable.deb
+
+            rm -f /run/google-chrome-stable.deb
+          fi
+
+          # -------------------------------------------------
+          # Java Temurin: LTS mais recente
+          # -------------------------------------------------
+
+          case "$(dpkg --print-architecture)" in
+            amd64)
+              ADOPTIUM_ARCH="x64"
+              ;;
+
+            arm64)
+              ADOPTIUM_ARCH="aarch64"
+              ;;
+
+            *)
+              echo "Arquitetura não suportada para o Temurin."
+              exit 1
+              ;;
+          esac
+
+          JAVA_LTS_VERSION="$(
+            curl -fsSL \
+              https://api.adoptium.net/v3/info/available_releases |
+              jq -r '.most_recent_lts'
+          )"
+
+          echo "Instalando Java LTS ${JAVA_LTS_VERSION}..."
+
+          JAVA_API_URL="https://api.adoptium.net/v3/binary/latest/${JAVA_LTS_VERSION}/ga/linux/${ADOPTIUM_ARCH}/jdk/hotspot/normal/eclipse"
+
+          rm -rf /usr/lib/jvm/temurin-lts
+
+          install -d /usr/lib/jvm/temurin-lts
+
+          curl -fL \
+            "${JAVA_API_URL}" \
+            -o /run/temurin-lts.tar.gz
+
+          tar \
+            -xzf /run/temurin-lts.tar.gz \
+            --strip-components=1 \
+            -C /usr/lib/jvm/temurin-lts
+
+          rm -f /run/temurin-lts.tar.gz
+
+          update-alternatives \
+            --install \
+            /usr/bin/java \
+            java \
+            /usr/lib/jvm/temurin-lts/bin/java \
+            2000
+
+          update-alternatives \
+            --install \
+            /usr/bin/javac \
+            javac \
+            /usr/lib/jvm/temurin-lts/bin/javac \
+            2000
+
+          cat > /etc/profile.d/java-lts.sh <<'EOF'
+          export JAVA_HOME=/usr/lib/jvm/temurin-lts
+          export PATH="$JAVA_HOME/bin:$PATH"
+          EOF
+
+          chmod 0644 /etc/profile.d/java-lts.sh
+
+          # -------------------------------------------------
+          # SDKMAN e Maven
+          # -------------------------------------------------
+
+          sudo -u "${DEV_USER}" -H bash -lc '
+            export JAVA_HOME=/usr/lib/jvm/temurin-lts
+            export PATH="$JAVA_HOME/bin:$PATH"
+
+            curl -fsSL https://get.sdkman.io | bash
+
+            source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+            yes | sdk install maven
+          '
+
+          # -------------------------------------------------
+          # NVM, Node.js LTS, TypeScript e Angular CLI
+          # -------------------------------------------------
+
+          sudo -u "${DEV_USER}" -H bash -lc '
+            export NVM_DIR="$HOME/.nvm"
+
+            git clone \
+              https://github.com/nvm-sh/nvm.git \
+              "$NVM_DIR"
+
+            cd "$NVM_DIR"
+
+            git checkout "$(git describe --abbrev=0 --tags)"
+
+            source "$NVM_DIR/nvm.sh"
+
+            nvm install --lts
+
+            nvm alias default "lts/*"
+
+            nvm use default
+
+            npm install --global \
+              typescript \
+              @angular/cli
+          '
+
+          # Disponibiliza NVM e Cargo nos próximos terminais.
+          cat >> "${DEV_HOME}/.bashrc" <<'EOF'
+
+          # NVM e Node.js LTS
+          export NVM_DIR="$HOME/.nvm"
+
+          [ -s "$NVM_DIR/nvm.sh" ] &&
+            . "$NVM_DIR/nvm.sh"
+
+          [ -s "$NVM_DIR/bash_completion" ] &&
+            . "$NVM_DIR/bash_completion"
+
+          # Rust e Cargo
+          [ -f "$HOME/.cargo/env" ] &&
+            . "$HOME/.cargo/env"
+          EOF
+
+          # -------------------------------------------------
+          # Rust stable
+          # -------------------------------------------------
+
+          sudo -u "${DEV_USER}" -H bash -lc '
+            curl \
+              --proto "=https" \
+              --tlsv1.2 \
+              -sSf \
+              https://sh.rustup.rs |
+              sh -s -- \
+                -y \
+                --profile default \
+                --default-toolchain stable
+          '
+
+          # -------------------------------------------------
+          # Configuração global do Git
+          # -------------------------------------------------
+
+          sudo -u "${DEV_USER}" -H \
+            git config \
+              --global \
+              user.name \
+              "tmvinicius"
+
+          sudo -u "${DEV_USER}" -H \
+            git config \
+              --global \
+              user.email \
+              "ESCREVA_SEU_EMAIL_AQUI"
+
+          # Atualiza o cache de fontes.
+          fc-cache -f
+
+          chown -R \
+            "${DEV_USER}:${DEV_USER}" \
+            "${DEV_HOME}/.gitconfig" \
+            "${DEV_HOME}/.nvm" \
+            "${DEV_HOME}/.sdkman" \
+            "${DEV_HOME}/.cargo"
+
+          touch \
+            /var/lib/development-environment-setup-complete
+
+          echo "Ambiente de desenvolvimento configurado."
+
+    runcmd:
+      - [bash, /usr/local/sbin/setup-development-environment]
+
+  shutdown: reboot
